@@ -26,7 +26,7 @@ read_gcs <- function(path, columns = NULL, bucket = BUCKET) {
 write_gcs <- function(df, path, bucket = BUCKET) {
   local <- tempfile(fileext = ".parquet")
   arrow::write_parquet(df, local, compression = "snappy")
-  googleCloudStorageR::gcs_upload(local, bucket = bucket, name = path, predefinedAcl = "projectPrivate")
+  googleCloudStorageR::gcs_upload(local, bucket = bucket, name = path, predefinedAcl = "bucketLevel")
   nrow(df)
 }
 
@@ -46,7 +46,7 @@ save_targets_meta <- function() {
   if (!dir.exists(meta_dir)) return(0L)
   files <- list.files(meta_dir, full.names = TRUE)
   for (f in files) {
-    googleCloudStorageR::gcs_upload(f, name = paste0("fleet_targets/_meta/", basename(f)), predefinedAcl = "projectPrivate")
+    googleCloudStorageR::gcs_upload(f, name = paste0("fleet_targets/_meta/", basename(f)), predefinedAcl = "bucketLevel")
   }
   length(files)
 }
