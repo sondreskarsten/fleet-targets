@@ -49,13 +49,12 @@ read_losore <- function() {
 }
 
 read_finstat <- function() {
-  fs <- gcs_fs()
-  path <- "firm-deterioration/input_data_static/finstat.parquet"
-  df <- arrow::read_parquet(
-    fs$OpenInputFile(path),
-    col_select = c("OffentligNr", "Regnskapsar", "RegnskapstypeKode",
-                   "TotaleInntekter", "SumDriftskostnader", "Driftsresultat",
-                   "Arsresultat", "SumEiendeler", "SumEK", "Lonnskostnad")
+  df <- read_gcs(
+    "input_data_static/finstat.parquet",
+    columns = c("OffentligNr", "Regnskapsar", "RegnskapstypeKode",
+                "TotaleInntekter", "SumDriftskostnader", "Driftsresultat",
+                "Arsresultat", "SumEiendeler", "SumEK", "Lonnskostnad"),
+    bucket = "firm-deterioration"
   )
   logger::log_info("finstat: {nrow(df)} rows")
   df

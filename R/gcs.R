@@ -1,22 +1,15 @@
 gcs_fs <- function() {
   key_path <- Sys.getenv("GOOGLE_APPLICATION_CREDENTIALS",
                          "/mnt/project/sondreskarsten-d7d14-8486be2d085b.json")
-  token_json <- system2("python3", c("-c", shQuote(sprintf(
-    "from google.oauth2 import service_account; from google.auth.transport.requests import Request; c=service_account.Credentials.from_service_account_file('%s',scopes=['https://www.googleapis.com/auth/cloud-platform']); c.refresh(Request()); import json; print(json.dumps({'token':c.token,'expiry':c.expiry.isoformat()}))",
-    key_path
-  ))), stdout = TRUE)
-  info <- jsonlite::fromJSON(token_json)
-  arrow::GcsFileSystem$create(
-    access_token = info$token,
-    expiration = as.POSIXct(info$expiry, format = "%Y-%m-%dT%H:%M:%OS", tz = "UTC")
-  )
+  key_json <- readLines(key_path, warn = FALSE) |> paste(collapse = "")
+  arrow::GcsFileSystem$create(json_credentials = key_json)
 }
 
 BUCKET <- Sys.getenv("GCS_BUCKET", "sondre_brreg_data")
 
-read_gcs <- function(path, columns = NULL) {
+read_gcs <- function(path, columns = NULL, bucket = BUCKET) {
   fs <- gcs_fs()
-  full <- paste0(BUCKET, "/", path)
+  full <- paste0(bucket, "/", path)
   if (is.null(columns)) {
     arrow::read_parquet(fs$OpenInputFile(full))
   } else {
