@@ -9,18 +9,18 @@ tar_source("R/")
 
 list(
   tar_target(fartoy, read_fartoy()),
-  tar_target(fangstdata, read_fangstdata()),
+  tar_target(fangstdata_files, read_fangstdata_files(), format = "file"),
   tar_target(ais_stats, read_ais_stats()),
   tar_target(live, read_live()),
   tar_target(nsr, read_nsr()),
-  tar_target(losore, read_losore()),
-  tar_target(finstat_raw, read_finstat()),
+  tar_target(losore_file, download_losore(), format = "file"),
+  tar_target(finstat_file, download_finstat(), format = "file"),
   tar_target(ledger_recent, read_ledger_recent()),
 
-  tar_target(finstat_clean, compute_finstat_clean(finstat_raw)),
-  tar_target(bank_segments, compute_bank_segments(losore)),
+  tar_target(finstat_clean, compute_finstat_clean(finstat_file)),
+  tar_target(bank_segments, compute_bank_segments(losore_file)),
   tar_target(latest_events, compute_latest_events(ledger_recent)),
-  tar_target(catch_agg, compute_catch_agg(fangstdata, fartoy)),
+  tar_target(catch_agg, compute_catch_agg(fangstdata_files, fartoy)),
   tar_target(ref_groups, compute_ref_groups(catch_agg)),
 
   tar_target(fleet_panel, materialize_fleet_panel(

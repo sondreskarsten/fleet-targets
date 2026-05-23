@@ -1,10 +1,9 @@
 DNB_ORGNRS <- c("984851006", "816521432", "920953743", "858043042", "985621551", "914782007")
 
-compute_bank_segments <- function(losore) {
+compute_bank_segments <- function(losore_file) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  DBI::dbExecute(con, "SET memory_limit='2GB'")
-  duckdb::duckdb_register(con, "losore", losore)
+  DBI::dbExecute(con, "SET memory_limit='8GB'")
 
   dnb_list <- paste0("'", DNB_ORGNRS, "'", collapse = ",")
 
@@ -21,13 +20,13 @@ compute_bank_segments <- function(losore) {
         json_extract_string(full_json, '$.krav.belop[0].belop')::BIGINT AS belop_nok,
         json_extract_string(rolle.json, '$.rolleinnehaver.navn') AS bank_name,
         json_extract_string(rolle.json, '$.rolleinnehaver.organisasjonsnummer') AS bank_orgnr
-      FROM losore,
+      FROM read_parquet('%s'),
         LATERAL (SELECT unnest(from_json(json_extract(full_json, '$.roller'), '[\"JSON\"]')) AS json) AS rolle
       WHERE orgnr IS NOT NULL
         AND json_extract_string(rolle.json, '$.rollegruppetype') = 'rollegruppe.rett'
     ) sub
     GROUP BY orgnr
-  ", dnb_list, dnb_list, dnb_list, dnb_list, dnb_list))
+  ", dnb_list, dnb_list, dnb_list, dnb_list, dnb_list, losore_file))
 }
 
 compute_latest_events <- function(ledger) {
@@ -57,30 +56,32 @@ compute_latest_events <- function(ledger) {
   ")
 }
 
-compute_catch_agg <- function(fangstdata, fartoy) {
+compute_catch_agg <- function(fangstdata_files, fartoy) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  DBI::dbExecute(con, "SET memory_limit='2GB'")
-  duckdb::duckdb_register(con, "fangst", fangstdata)
+  DBI::dbExecute(con, "SET memory_limit='8GB'")
   duckdb::duckdb_register(con, "fartoy", fartoy)
 
-  DBI::dbGetQuery(con, "
+  file_list <- paste0("'", fangstdata_files, "'", collapse = ",")
+  DBI::dbGetQuery(con, sprintf("
     SELECT fartoy_id, fr.orgnr, f.fangstar::INT AS year,
+      COALESCE(fr.radio_call_sign, f.radiokallesignal_seddel) AS callsign,
       MAX(COALESCE(fr.name, f.fartoynavn)) AS vessel_name,
       MAX(f.lengdegruppe) AS length_group,
       STRING_AGG(DISTINCT f.redskap_hovedgruppe, '/' ORDER BY f.redskap_hovedgruppe) AS gear_types,
       MAX(f.redskap_hovedgruppe) AS primary_gear,
       round(sum(f.rundvekt)/1000, 1) AS catch_tonnes,
       round(sum(CASE WHEN f.fangstverdi > 0 THEN f.fangstverdi ELSE 0 END)/1000, 0) AS catch_value_knok,
-      MAX(count(DISTINCT f.siste_fangstdato)) OVER (PARTITION BY fartoy_id, f.fangstar::INT) AS landing_days,
+      count(DISTINCT f.siste_fangstdato) AS landing_days,
       count(DISTINCT f.art) AS n_species,
       max(f.besetning) AS max_crew,
       max(f.bruttotonnasje_annen) AS gt
-    FROM fangst f
+    FROM read_parquet([%s]) f
     LEFT JOIN fartoy fr ON f.radiokallesignal_seddel = fr.radio_call_sign
     WHERE f.fangstar::INT BETWEEN 2020 AND 2025
-    GROUP BY fartoy_id, fr.orgnr, f.fangstar::INT
-  ")
+    GROUP BY fartoy_id, fr.orgnr, f.fangstar::INT,
+      COALESCE(fr.radio_call_sign, f.radiokallesignal_seddel)
+  ", file_list))
 }
 
 compute_ref_groups <- function(catch_agg) {
@@ -101,12 +102,11 @@ compute_ref_groups <- function(catch_agg) {
   ")
 }
 
-compute_finstat_clean <- function(finstat) {
+compute_finstat_clean <- function(finstat_file) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  duckdb::duckdb_register(con, "fs", finstat)
 
-  DBI::dbGetQuery(con, "
+  DBI::dbGetQuery(con, sprintf("
     SELECT LPAD(CAST(CAST(OffentligNr AS BIGINT) AS VARCHAR), 9, '0') AS orgnr,
       Regnskapsar AS year,
       TotaleInntekter/1000.0 AS revenue_knok,
@@ -116,15 +116,15 @@ compute_finstat_clean <- function(finstat) {
       SumEiendeler/1000.0 AS total_assets_knok,
       SumEK/1000.0 AS equity_knok,
       Lonnskostnad/1000.0 AS wage_cost_knok
-    FROM fs
+    FROM read_parquet('%s')
     WHERE Regnskapsar BETWEEN 2020 AND 2024 AND RegnskapstypeKode = 'R'
-  ")
+  ", finstat_file))
 }
 
 materialize_fleet_panel <- function(catch_agg, ais_stats, finstat_clean, live, nsr, bank_segments) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  DBI::dbExecute(con, "SET memory_limit='2GB'")
+  DBI::dbExecute(con, "SET memory_limit='8GB'")
   duckdb::duckdb_register(con, "ca", catch_agg)
   duckdb::duckdb_register(con, "ais", ais_stats)
   duckdb::duckdb_register(con, "fs", finstat_clean)
@@ -160,20 +160,23 @@ materialize_portfolio_vessel <- function(fartoy, catch_agg, ais_stats, live, nsr
                                          bank_segments, ref_groups, latest_events) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
-  DBI::dbExecute(con, "SET memory_limit='2GB'")
-  for (nm in c("fartoy","catch_agg","ais","live","nsr","fs","bs","rg","le")) {
-    obj <- switch(nm, fartoy=fartoy, catch_agg=catch_agg, ais=ais_stats, live=live,
-                  nsr=nsr, fs=finstat_clean, bs=bank_segments, rg=ref_groups, le=latest_events)
-    duckdb::duckdb_register(con, nm, obj)
-  }
+  DBI::dbExecute(con, "SET memory_limit='8GB'")
+  duckdb::duckdb_register(con, "fartoy", fartoy)
+  duckdb::duckdb_register(con, "catch_agg", catch_agg)
+  duckdb::duckdb_register(con, "ais", ais_stats)
+  duckdb::duckdb_register(con, "live", live)
+  duckdb::duckdb_register(con, "nsr", nsr)
+  duckdb::duckdb_register(con, "fs", finstat_clean)
+  duckdb::duckdb_register(con, "bs", bank_segments)
+  duckdb::duckdb_register(con, "rg", ref_groups)
+  duckdb::duckdb_register(con, "le", latest_events)
 
   DBI::dbGetQuery(con, "
     WITH cur AS (SELECT * FROM catch_agg WHERE year = 2024),
-    prior AS (SELECT fartoy_id, catch_tonnes AS prior_catch, catch_value_knok AS prior_value,
-      landing_days AS prior_days, net_income_knok AS prior_ni
-      FROM (SELECT ca.*, fs.net_income_knok FROM catch_agg ca
-            LEFT JOIN fs ON ca.orgnr = fs.orgnr AND ca.year = fs.year
-            WHERE ca.year = 2023))
+    prior AS (SELECT ca.fartoy_id, ca.catch_tonnes AS prior_catch, ca.catch_value_knok AS prior_value,
+      ca.landing_days AS prior_days, fs.net_income_knok AS prior_ni
+      FROM catch_agg ca LEFT JOIN fs ON ca.orgnr = fs.orgnr AND ca.year = fs.year
+      WHERE ca.year = 2023)
     SELECT
       f.vessel_id, f.orgnr, f.name AS vessel_name, f.radio_call_sign AS callsign,
       nsr.mmsino AS mmsi, f.municipality_code,
@@ -240,8 +243,7 @@ materialize_capacity_util <- function(fleet_panel) {
       round(avg(net_income_knok), 0) AS avg_net_income_knok,
       round(avg(n_species), 1) AS avg_species_count,
       round(avg(max_crew), 1) AS avg_crew
-    FROM fp
-    WHERE orgnr IS NOT NULL
+    FROM fp WHERE orgnr IS NOT NULL
     GROUP BY year, length_group, primary_gear
     ORDER BY year, length_group, primary_gear
   ")
