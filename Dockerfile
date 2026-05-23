@@ -4,7 +4,6 @@ WORKDIR /app
 
 COPY _targets.R .
 COPY run.R .
-COPY diag.R .
 COPY R/ R/
 
-CMD ["Rscript", "diag.R"]
+CMD ["Rscript", "run.R"]
