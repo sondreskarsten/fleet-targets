@@ -1,8 +1,11 @@
 gcs_fs <- function() {
-  key_path <- Sys.getenv("GOOGLE_APPLICATION_CREDENTIALS",
-                         "/mnt/project/sondreskarsten-d7d14-8486be2d085b.json")
-  key_json <- readLines(key_path, warn = FALSE) |> paste(collapse = "")
-  arrow::GcsFileSystem$create(json_credentials = key_json)
+  key_path <- Sys.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+  if (nzchar(key_path) && file.exists(key_path)) {
+    key_json <- readLines(key_path, warn = FALSE) |> paste(collapse = "")
+    arrow::GcsFileSystem$create(json_credentials = key_json)
+  } else {
+    arrow::GcsFileSystem$create()
+  }
 }
 
 BUCKET <- Sys.getenv("GCS_BUCKET", "sondre_brreg_data")
