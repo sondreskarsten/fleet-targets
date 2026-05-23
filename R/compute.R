@@ -4,6 +4,7 @@ compute_bank_segments <- function(losore_file) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbExecute(con, "SET memory_limit='8GB'")
+  DBI::dbExecute(con, "INSTALL json; LOAD json")
 
   dnb_list <- paste0("'", DNB_ORGNRS, "'", collapse = ",")
 
@@ -60,6 +61,7 @@ compute_catch_agg <- function(fangstdata_files, fartoy) {
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbExecute(con, "SET memory_limit='8GB'")
+  DBI::dbExecute(con, "INSTALL json; LOAD json")
   duckdb::duckdb_register(con, "fartoy", fartoy)
 
   file_list <- paste0("'", fangstdata_files, "'", collapse = ",")
@@ -125,6 +127,7 @@ materialize_fleet_panel <- function(catch_agg, ais_stats, finstat_clean, live, n
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbExecute(con, "SET memory_limit='8GB'")
+  DBI::dbExecute(con, "INSTALL json; LOAD json")
   duckdb::duckdb_register(con, "ca", catch_agg)
   duckdb::duckdb_register(con, "ais", ais_stats)
   duckdb::duckdb_register(con, "fs", finstat_clean)
@@ -161,6 +164,7 @@ materialize_portfolio_vessel <- function(fartoy, catch_agg, ais_stats, live, nsr
   con <- DBI::dbConnect(duckdb::duckdb(), dbdir = ":memory:")
   on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
   DBI::dbExecute(con, "SET memory_limit='8GB'")
+  DBI::dbExecute(con, "INSTALL json; LOAD json")
   duckdb::duckdb_register(con, "fartoy", fartoy)
   duckdb::duckdb_register(con, "catch_agg", catch_agg)
   duckdb::duckdb_register(con, "ais", ais_stats)
