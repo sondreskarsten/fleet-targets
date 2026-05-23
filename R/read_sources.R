@@ -1,7 +1,7 @@
 read_fartoy <- function() {
   path <- latest_file("fiskeridir/parsed/v1/state/")
   logger::log_info("fartoy: {path}")
-  read_gcs(sub(paste0(BUCKET, "/"), "", path))
+  read_gcs(path)
 }
 
 read_fangstdata <- function(years = 2020:2025) {
@@ -16,7 +16,7 @@ read_fangstdata <- function(years = 2020:2025) {
 
 read_ais_stats <- function() {
   df <- read_gcs("ais/gold/ais_stats.parquet")
-  logger::log_info("ais_stats: {nrow(df)} orgnrs, {sum(df$ais_days)} vessel-days")
+  logger::log_info("ais_stats: {nrow(df)} orgnrs")
   df
 }
 
@@ -27,15 +27,10 @@ read_live <- function() {
 }
 
 read_nsr <- function() {
-  files <- list_gcs("ais/raw/statinfo/")
-  paths <- vapply(files, function(x) x$path, character(1))
-  sizes <- vapply(files, function(x) x$size, numeric(1))
-  paths <- paths[grepl("\\.parquet$", paths)]
-  sizes <- sizes[grepl("\\.parquet$", vapply(files, function(x) x$path, character(1)))]
-  top <- head(paths[order(sizes, decreasing = TRUE)], 5)
-  dfs <- lapply(top, function(p) {
-    read_gcs(sub(paste0(BUCKET, "/"), "", p), columns = c("mmsino", "callsign"))
-  })
+  objs <- list_gcs_files("ais/raw/statinfo/")
+  objs <- objs[order(objs$size, decreasing = TRUE), ]
+  top <- head(objs$name, 5)
+  dfs <- lapply(top, function(p) read_gcs(p, columns = c("mmsino", "callsign")))
   df <- dplyr::distinct(dplyr::bind_rows(dfs))
   df <- dplyr::filter(df, !is.na(callsign))
   logger::log_info("nsr: {nrow(df)} mmsi-callsign pairs")
@@ -61,13 +56,9 @@ read_finstat <- function() {
 }
 
 read_ledger_recent <- function(n_days = 60) {
-  files <- list_gcs("integration/ledger/")
-  paths <- vapply(files, function(x) x$path, character(1))
-  paths <- sort(paths[grepl("\\.parquet$", paths)])
-  paths <- tail(paths, n_days)
-  dfs <- lapply(paths, function(p) {
-    tryCatch(read_gcs(sub(paste0(BUCKET, "/"), "", p)), error = function(e) NULL)
-  })
+  objs <- list_gcs_files("integration/ledger/")
+  paths <- tail(objs$name, n_days)
+  dfs <- lapply(paths, function(p) tryCatch(read_gcs(p), error = function(e) NULL))
   dfs <- Filter(Negate(is.null), dfs)
   df <- dplyr::bind_rows(dfs)
   logger::log_info("ledger: {nrow(df)} events from {length(dfs)} days")

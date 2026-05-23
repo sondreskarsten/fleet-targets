@@ -1,5 +1,10 @@
 library(targets)
 
+tar_option_set(
+  packages = c("dplyr", "arrow", "duckdb", "DBI", "logger", "googleCloudStorageR"),
+  format = "rds"
+)
+
 tar_source("R/")
 
 list(
